@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="pt">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Taberna de Songo — Baile dos Finalistas</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+body{background:#090d0b;color:#f3f4f6;font-family:Inter,system-ui,sans-serif}
+.gold{color:#e5c158}.panel{background:#111815;border:1px solid #65552a;border-radius:16px}
+input,select{background:#090d0b;border:1px solid #46534c;border-radius:9px;padding:10px;color:white;width:100%}
+button{border-radius:9px;padding:10px 13px;font-weight:600}
+.btn{background:#e5c158;color:#111}.btn2{background:#164b34;color:white}.muted{color:#9ca3af}
+table{width:100%;border-collapse:collapse}td,th{padding:9px;border-bottom:1px solid #26332d;text-align:left;font-size:13px}
+</style>
+</head>
+<body class="min-h-screen">
+<header class="p-4 border-b border-yellow-900/50 bg-[#0d1411]">
+ <div class="max-w-6xl mx-auto flex flex-wrap justify-between gap-3 items-center">
+  <div><div class="text-xs text-emerald-300">BAILE DOS FINALISTAS</div><h1 class="text-xl font-extrabold gold">TABERNA DE SONGO — Controlo QR</h1><div id="sync" class="text-xs muted">A aguardar autenticação</div></div>
+  <div class="text-right"><div class="text-xs muted">Saldo global disponível</div><div id="total" class="text-xl font-bold text-emerald-400">—</div></div>
+ </div>
+</header>
+<main class="max-w-6xl mx-auto p-4 space-y-4">
+<section id="login" class="panel p-5 max-w-md mx-auto mt-8">
+ <h2 class="gold font-bold text-lg mb-2">Acesso ao sistema</h2>
+ <p class="muted text-sm mb-4">Entre com o utilizador criado no Firebase Authentication.</p>
+ <form id="loginForm" class="space-y-3">
+  <input id="email" type="email" placeholder="E-mail do administrador" required autocomplete="username">
+  <input id="password" type="password" placeholder="Palavra-passe" required autocomplete="current-password">
+  <input id="employee" placeholder="Nome do funcionário neste dispositivo" required>
+  <button class="btn w-full" type="submit">Entrar</button>
+ </form><p id="loginError" class="text-red-300 text-sm mt-3"></p>
+</section>
+<section id="app" class="hidden space-y-4">
+ <div class="panel p-3 flex flex-wrap justify-between gap-2 items-center">
+  <div class="text-sm">Sessão: <b id="who" class="gold"></b></div>
+  <div class="flex gap-2 flex-wrap"><button id="refresh" class="btn2">Actualizar</button><button id="backup" class="btn2">Cópia de segurança</button><button id="logout" class="bg-red-900 text-white">Sair</button></div>
+ </div>
+ <nav class="flex flex-wrap gap-2">
+  <button class="btn" data-tab="pos">Balcão / Consumo</button><button class="btn2" data-tab="cards">Cartões</button><button class="btn2" data-tab="history">Histórico e relatórios</button>
+ </nav>
+ <section id="tab-pos" class="grid md:grid-cols-2 gap-4">
+  <div class="panel p-4 space-y-3">
+   <h2 class="gold font-bold">Identificar cartão</h2>
+   <input id="search" placeholder="Pesquisar finalista, nº ou ID QR">
+   <div id="cardResults" class="max-h-72 overflow-auto space-y-2"></div>
+   <div id="activeCard" class="text-sm muted">Seleccione um cartão.</div>
+   <div id="qr-reader" class="hidden"></div><button id="scan" class="btn2">Abrir leitor QR</button>
+  </div>
+  <div class="panel p-4 space-y-3">
+   <h2 class="gold font-bold">Lançar consumo</h2><div id="menuItems" class="grid grid-cols-2 gap-2 max-h-80 overflow-auto"></div>
+   <div class="border-t border-white/10 pt-3 space-y-2">
+    <input id="customName" placeholder="Descrição do consumo / combo">
+    <input id="customAmount" type="number" min="1" step="1" placeholder="Valor em MT">
+    <button id="customCharge" class="btn w-full">Descontar valor avulso</button>
+   </div><div id="message" class="text-sm"></div>
+  </div>
+ </section>
+ <section id="tab-cards" class="hidden space-y-4">
+  <div class="panel p-4"><h2 class="gold font-bold mb-3">Adicionar saldo</h2><div class="grid sm:grid-cols-3 gap-2"><select id="topCard"></select><input id="topAmount" type="number" min="1" placeholder="Valor MT"><button id="topUp" class="btn">Carregar</button></div></div>
+  <div class="panel p-4"><h2 class="gold font-bold mb-3">Lista de cartões</h2><div class="overflow-auto"><table><thead><tr><th>Nº / ID</th><th>Finalista</th><th>Encarregados</th><th>Inicial</th><th>Saldo</th></tr></thead><tbody id="cardsTable"></tbody></table></div></div>
+ </section>
+ <section id="tab-history" class="hidden space-y-4">
+  <div class="panel p-4 flex flex-wrap gap-2"><button id="csv" class="btn2">Descarregar CSV</button><button id="pdf" class="btn2">Descarregar PDF</button><span class="muted text-xs self-center">A cópia de segurança descarrega os dados completos em JSON.</span></div>
+  <div class="panel p-4 overflow-auto"><h2 class="gold font-bold mb-3">Movimentos</h2><table><thead><tr><th>Data/hora</th><th>Cartão</th><th>Finalista</th><th>Descrição</th><th>Valor</th><th>Funcionário</th></tr></thead><tbody id="txTable"></tbody></table></div>
+ </section>
+</section>
+</main>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-app.js";
+import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-auth.js";
+import { getDatabase, ref, get, runTransaction, onValue } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-database.js";
+
+const firebaseConfig = {
+ apiKey: "AIzaSyBXPHHcXcWpYo9puRpCY0bixuBMtDVy_0c",
+ authDomain: "taberna-baile-de-finalistas.firebaseapp.com",
+ databaseURL: "https://taberna-baile-de-finalistas-default-rtdb.firebaseio.com",
+ projectId: "taberna-baile-de-finalistas",
+ storageBucket: "taberna-baile-de-finalistas.firebasestorage.app",
+ messagingSenderId: "1023834707276",
+ appId: "1:1023834707276:web:d3f0de537c1850a24d6be9"
+};
+// Confirme o appId acima com a configuração original do Firebase se editar este ficheiro.
+const app=initializeApp(firebaseConfig), auth=getAuth(app), db=getDatabase(app);
+const ROOT="taberna_songo_evento_2026";
+const OFFICIAL_CARDS=[{"num":"001","id":"001-L-T","finalist":"Letícia","parents":"Joisse Mouzinho e Anabela Faustino","initial":2000,"balance":2000},{"num":"002","id":"002-Y-T","finalist":"Yasmin","parents":"Humberto Levesseni e Edma Longane","initial":2000,"balance":2000},{"num":"003","id":"003-A-T","finalist":"Alice","parents":"António e Gilda Rego","initial":2000,"balance":2000},{"num":"004","id":"004-L-T","finalist":"Layra","parents":"Ângela Nhampossa e Leocádia Nhampossa","initial":2000,"balance":2000},{"num":"005","id":"005-B-T","finalist":"Bruna","parents":"Eanes Janasse e Sandra Vale","initial":2000,"balance":2000},{"num":"006","id":"006-M-T","finalist":"Mariamo","parents":"Emílio Marra e Victória Marra","initial":2000,"balance":2000},{"num":"007","id":"007-I-T","finalist":"Ioná","parents":"Amós David e Flora David","initial":2000,"balance":2000},{"num":"008","id":"008-C-T","finalist":"Clezlon","parents":"Baltazar Maria e Oreana Canhanga","initial":2000,"balance":2000},{"num":"009","id":"009-A-T","finalist":"Ariel","parents":"Binte Insa e Valdemiro Bacar","initial":2000,"balance":2000},{"num":"010","id":"010-E-T","finalist":"Euclides","parents":"Joana Vieira e Zefanias Ngueze","initial":2000,"balance":2000},{"num":"011","id":"011-R-T","finalist":"Ruben","parents":"João Andrade e Noélia Trindade","initial":2000,"balance":2000},{"num":"012","id":"012-K-T","finalist":"Keyzel","parents":"Prosperino Saidane e Niklas Saidade","initial":2000,"balance":2000},{"num":"013","id":"013-E-T","finalist":"Eslovénia","parents":"Artur João Sande e Manuela Sande","initial":2000,"balance":2000},{"num":"014","id":"014-L-T","finalist":"Luísa","parents":"Alberto Carvalho e Teresinha Armando","initial":2000,"balance":2000},{"num":"015","id":"015-M-T","finalist":"Marineise","parents":"Domingos e Lucrécia Bacalhau","initial":2000,"balance":2000},{"num":"016","id":"016-A-T","finalist":"Albano","parents":"Zaqueu Mufemane e Anita Mufemane","initial":2000,"balance":2000},{"num":"017","id":"017-J-T","finalist":"Jaqueline","parents":"Sandra Maluque e Tambuzane Verimbo","initial":2000,"balance":2000},{"num":"018","id":"018-M-T","finalist":"Manuel","parents":"Joaquim Andrigo e Rita de Abreu","initial":2000,"balance":2000},{"num":"019","id":"019-R-T","finalist":"Renilson","parents":"Paulino Alfredo e Berta Chiria","initial":2000,"balance":2000},{"num":"020","id":"020-J-T","finalist":"Joel","parents":"Francisco Dias e Dulce Dias","initial":2000,"balance":2000},{"num":"021","id":"021-H-T","finalist":"Horácia","parents":"Hamilton Mandlate e Virgínia Calisto","initial":2000,"balance":2000},{"num":"022","id":"022-E-T","finalist":"Edgar","parents":"Etelvino Jofete e Arcelina José Cléofas","initial":2000,"balance":2000},{"num":"023","id":"023-N-T","finalist":"Nancy","parents":"Netinho Tepeia e Edma Tepeia","initial":2000,"balance":2000},{"num":"024","id":"024-L-T","finalist":"Lariss","parents":"Hugo Nurmamad e Clotilde Nurmamad","initial":2000,"balance":2000},{"num":"025","id":"025-N-T","finalist":"Nelson","parents":"Nelson Maquile e Brighton Gande","initial":2000,"balance":2000},{"num":"026","id":"026-S-T","finalist":"Sheila","parents":"Carolina Luís e Julieta Nhawanga","initial":2000,"balance":2000},{"num":"027","id":"027-J-T","finalist":"Joao","parents":"Isabel Dale e Jason Marra","initial":2000,"balance":2000}];
+const DEFAULT_MENU=[{"id":"m1","name":"Alandra","price":1200,"category":"Bebidas / Destilados / Vinhos"},{"id":"m2","name":"Amarula","price":1600,"category":"Bebidas / Destilados / Vinhos"},{"id":"m3","name":"Bacard","price":1800,"category":"Bebidas / Destilados / Vinhos"},{"id":"m4","name":"Black Label","price":3000,"category":"Bebidas / Destilados / Vinhos"},{"id":"m5","name":"Cabriz branco","price":1200,"category":"Bebidas / Destilados / Vinhos"},{"id":"m6","name":"Cabriz tinto","price":1500,"category":"Bebidas / Destilados / Vinhos"},{"id":"m7","name":"Casa da Malta G","price":1500,"category":"Bebidas / Destilados / Vinhos"},{"id":"m8","name":"Casa da malta P","price":500,"category":"Bebidas / Destilados / Vinhos"},{"id":"m9","name":"CHANDOR","price":800,"category":"Bebidas / Destilados / Vinhos"},{"id":"m10","name":"Chivas","price":2500,"category":"Bebidas / Destilados / Vinhos"},{"id":"m11","name":"Duas quintas","price":2500,"category":"Bebidas / Destilados / Vinhos"},{"id":"m12","name":"GATAO","price":850,"category":"Bebidas / Destilados / Vinhos"},{"id":"m13","name":"Gordon","price":1000,"category":"Bebidas / Destilados / Vinhos"},{"id":"m14","name":"GORDON PINK","price":900,"category":"Bebidas / Destilados / Vinhos"},{"id":"m15","name":"GROOT CONSTANTINIA","price":1800,"category":"Bebidas / Destilados / Vinhos"},{"id":"m16","name":"Jameson","price":1800,"category":"Bebidas / Destilados / Vinhos"},{"id":"m17","name":"JC G","price":1000,"category":"Bebidas / Destilados / Vinhos"},{"id":"m18","name":"KALUA","price":1900,"category":"Bebidas / Destilados / Vinhos"},{"id":"m19","name":"Martin/ TINTO","price":1800,"category":"Bebidas / Destilados / Vinhos"},{"id":"m20","name":"Monte velho","price":1800,"category":"Bebidas / Destilados / Vinhos"},{"id":"m21","name":"Mucho Mas","price":2500,"category":"Bebidas / Destilados / Vinhos"},{"id":"m22","name":"NEDBURG","price":750,"category":"Bebidas / Destilados / Vinhos"},{"id":"m23","name":"NEDBURG LIRIC","price":800,"category":"Bebidas / Destilados / Vinhos"},{"id":"m24","name":"OLMEGA","price":2100,"category":"Bebidas / Destilados / Vinhos"},{"id":"m25","name":"portada","price":1500,"category":"Bebidas / Destilados / Vinhos"},{"id":"m26","name":"Red Label","price":1800,"category":"Bebidas / Destilados / Vinhos"},{"id":"m27","name":"ROSTENBERG","price":1150,"category":"Bebidas / Destilados / Vinhos"},{"id":"m28","name":"Silk & Space caixas","price":1800,"category":"Bebidas / Destilados / Vinhos"},{"id":"m29","name":"Smirnof 1818","price":1500,"category":"Bebidas / Destilados / Vinhos"},{"id":"m30","name":"STRETONS","price":750,"category":"Bebidas / Destilados / Vinhos"},{"id":"m31","name":"Tanguiray","price":2000,"category":"Bebidas / Destilados / Vinhos"},{"id":"m32","name":"TOSTI","price":1800,"category":"Bebidas / Destilados / Vinhos"},{"id":"m33","name":"2M a lata","price":100,"category":"Cervejas / Águas / Refrescos"},{"id":"m34","name":"Agua grande","price":100,"category":"Cervejas / Águas / Refrescos"},{"id":"m35","name":"Agua pequena","price":50,"category":"Cervejas / Águas / Refrescos"},{"id":"m36","name":"Agua Tonica","price":80,"category":"Cervejas / Águas / Refrescos"},{"id":"m37","name":"Bernini","price":150,"category":"Cervejas / Águas / Refrescos"},{"id":"m38","name":"Brutal","price":150,"category":"Cervejas / Águas / Refrescos"},{"id":"m39","name":"Café","price":100,"category":"Cervejas / Águas / Refrescos"},{"id":"m40","name":"Corona","price":150,"category":"Cervejas / Águas / Refrescos"},{"id":"m41","name":"Ginger al","price":80,"category":"Cervejas / Águas / Refrescos"},{"id":"m42","name":"Heineken a lata","price":100,"category":"Cervejas / Águas / Refrescos"},{"id":"m43","name":"Heineken P","price":100,"category":"Cervejas / Águas / Refrescos"},{"id":"m44","name":"Hunters Gold","price":150,"category":"Cervejas / Águas / Refrescos"},{"id":"m45","name":"Impala a lata","price":100,"category":"Cervejas / Águas / Refrescos"},{"id":"m46","name":"JC a lata","price":150,"category":"Cervejas / Águas / Refrescos"},{"id":"m47","name":"Lite","price":100,"category":"Cervejas / Águas / Refrescos"},{"id":"m48","name":"Manica a lata","price":100,"category":"Cervejas / Águas / Refrescos"},{"id":"m49","name":"Mayfire","price":150,"category":"Cervejas / Águas / Refrescos"},{"id":"m50","name":"Pretinha","price":100,"category":"Cervejas / Águas / Refrescos"},{"id":"m51","name":"Refrescos em lata","price":80,"category":"Cervejas / Águas / Refrescos"},{"id":"m52","name":"Savana","price":150,"category":"Cervejas / Águas / Refrescos"},{"id":"m53","name":"Stela","price":150,"category":"Cervejas / Águas / Refrescos"},{"id":"m54","name":"Sumos","price":200,"category":"Cervejas / Águas / Refrescos"},{"id":"m55","name":"Txilar lata","price":100,"category":"Cervejas / Águas / Refrescos"},{"id":"m56","name":"Sex on the Beach","price":450,"category":"Cocktails & Shots"},{"id":"m57","name":"Caipirinha de Maracujá","price":450,"category":"Cocktails & Shots"},{"id":"m58","name":"Caipirinha de Limão","price":450,"category":"Cocktails & Shots"},{"id":"m59","name":"Piña Colada","price":450,"category":"Cocktails & Shots"},{"id":"m60","name":"Gin Tanqueray com Dry Lemon","price":450,"category":"Cocktails & Shots"},{"id":"m61","name":"Sex on the Beach (Sem Álcool)","price":250,"category":"Cocktails & Shots"},{"id":"m62","name":"Piña Colada (Sem Álcool)","price":300,"category":"Cocktails & Shots"},{"id":"m63","name":"Shot Blow Job","price":400,"category":"Cocktails & Shots"},{"id":"m64","name":"Copo de Jägermeister","price":450,"category":"Cocktails & Shots"}];
+let state=null, selected=null, employee=localStorage.getItem("taberna_employee")||"", qr=null, unsubscribe=null;
+
+const $=id=>document.getElementById(id);
+const money=n=>Number(n||0).toLocaleString("pt-MZ",{minimumFractionDigits:2,maximumFractionDigits:2})+" MT";
+const safe=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+function status(t,ok=true){$("sync").textContent=t;$("sync").className="text-xs "+(ok?"text-emerald-300":"text-amber-300")}
+function defaultState(){return {cards:structuredClone(OFFICIAL_CARDS),menu:structuredClone(DEFAULT_MENU),transactions:[],createdAt:new Date().toISOString()}}
+function ensureState(s){if(!s||!Array.isArray(s.cards)||!s.cards.length)return defaultState();if(!Array.isArray(s.menu))s.menu=structuredClone(DEFAULT_MENU);if(!Array.isArray(s.transactions))s.transactions=[];return s}
+async function initialiseIfNeeded(){
+ const r=ref(db,ROOT); await runTransaction(r,current=>current===null?defaultState():current);
+}
+function startRealtime(){
+ if(unsubscribe)unsubscribe();
+ unsubscribe=onValue(ref(db,ROOT),snap=>{state=ensureState(snap.val());render();status("Ligado — dados sincronizados",true)},err=>status("Erro de leitura: "+err.message,false));
+}
+async function mutate(fn){
+ if(!auth.currentUser)throw Error("Sessão terminada. Volte a entrar.");
+ const result=await runTransaction(ref(db,ROOT),current=>{
+  const s=ensureState(current); const changed=fn(s); return changed===false?undefined:s;
+ });
+ if(!result.committed)throw Error("Operação não confirmada. Actualize e tente novamente.");
+ state=ensureState(result.snapshot.val());render();return state;
+}
+function addTx(s,card,description,amount){
+ const now=new Date();
+ s.transactions.unshift({txId:"TX-"+now.getTime()+"-"+Math.random().toString(36).slice(2,7),timestamp:now.toISOString(),time:now.toLocaleString("pt-MZ"),cardId:card.id,cardNum:card.num,finalist:card.finalist,description,amount,balanceAfter:card.balance,employee});
+}
+function render(){
+ if(!state)return;
+ $("total").textContent=money(state.cards.reduce((a,c)=>a+Number(c.balance||0),0));
+ const q=$("search").value.trim().toLocaleLowerCase();
+ const matches=state.cards.filter(c=>[c.num,c.id,c.finalist,c.parents].join(" ").toLocaleLowerCase().includes(q));
+ $("cardResults").innerHTML=matches.map(c=>`<button class="w-full text-left bg-[#17231c] border border-white/10" data-card="${safe(c.id)}"><b>${safe(c.num)} — ${safe(c.finalist)}</b><span class="block text-xs muted">${safe(c.id)} · ${money(c.balance)}</span></button>`).join("")||'<p class="muted text-sm">Nenhum cartão encontrado.</p>';
+ document.querySelectorAll("[data-card]").forEach(b=>b.onclick=()=>selectCard(b.dataset.card));
+ $("activeCard").innerHTML=selected?(()=>{const c=state.cards.find(x=>x.id===selected);return c?`<div class="mt-3 p-3 bg-[#17231c] rounded-xl"><b class="gold">${safe(c.finalist)}</b><div>${safe(c.id)} · ${safe(c.parents)}</div><div class="text-xl text-emerald-300 font-bold">${money(c.balance)}</div></div>`:"Cartão não encontrado"})():"Seleccione um cartão.";
+ $("menuItems").innerHTML=state.menu.map(m=>`<button class="bg-[#17231c] border border-white/10 text-left" data-menu="${safe(m.id)}"><span class="block text-sm">${safe(m.name)}</span><b class="gold">${money(m.price)}</b></button>`).join("");
+ document.querySelectorAll("[data-menu]").forEach(b=>b.onclick=()=>chargeMenu(b.dataset.menu));
+ $("topCard").innerHTML=state.cards.map(c=>`<option value="${safe(c.id)}">${safe(c.num)} — ${safe(c.finalist)} (${money(c.balance)})</option>`).join("");
+ $("cardsTable").innerHTML=state.cards.map(c=>`<tr><td>${safe(c.num)}<br><small>${safe(c.id)}</small></td><td>${safe(c.finalist)}</td><td>${safe(c.parents)}</td><td>${money(c.initial)}</td><td>${money(c.balance)}</td></tr>`).join("");
+ $("txTable").innerHTML=state.transactions.map(t=>`<tr><td>${safe(t.time||t.timestamp)}</td><td>${safe(t.cardId)}</td><td>${safe(t.finalist)}</td><td>${safe(t.description)}</td><td class="${t.amount<0?'text-amber-300':'text-emerald-300'}">${t.amount<0?"−":"+"}${money(Math.abs(t.amount))}</td><td>${safe(t.employee)}</td></tr>`).join("");
+}
+function selectCard(id){selected=id;render()}
+function showMessage(m,ok=true){$("message").textContent=m;$("message").className="text-sm "+(ok?"text-emerald-300":"text-red-300")}
+async function charge(desc,amount){
+ if(!selected)throw Error("Seleccione primeiro um cartão.");
+ if(!Number.isFinite(amount)||amount<=0)throw Error("Indique um valor válido.");
+ await mutate(s=>{const c=s.cards.find(x=>x.id===selected);if(!c)throw Error("Cartão não encontrado.");if(Number(c.balance)<amount)throw Error("Saldo insuficiente. Saldo actual: "+money(c.balance));c.balance=Number(c.balance)-amount;addTx(s,c,desc,-amount)});
+ showMessage("Consumo registado: "+money(amount));
+}
+async function chargeMenu(id){const m=state.menu.find(x=>x.id===id);if(!m)return;try{await charge(m.name,Number(m.price))}catch(e){showMessage(e.message,false)}}
+$("loginForm").addEventListener("submit",async e=>{e.preventDefault();$("loginError").textContent="";employee=$("employee").value.trim();if(!employee){$("loginError").textContent="Indique o nome do funcionário.";return}try{await signInWithEmailAndPassword(auth,$("email").value.trim(),$("password").value);localStorage.setItem("taberna_employee",employee)}catch(err){$("loginError").textContent="Falha no login: "+err.message}});
+onAuthStateChanged(auth,async user=>{
+ $("login").classList.toggle("hidden",!!user);$("app").classList.toggle("hidden",!user);
+ if(user){$("who").textContent=employee||user.email;if(!employee){employee=prompt("Nome do funcionário neste dispositivo:")||"Funcionário";localStorage.setItem("taberna_employee",employee);$("who").textContent=employee}
+  try{await initialiseIfNeeded();startRealtime()}catch(e){status("Falha de ligação: "+e.message,false)}
+ }else{if(unsubscribe)unsubscribe();state=null;status("Sessão terminada",false)}
+});
+$("logout").onclick=()=>signOut(auth);
+$("refresh").onclick=async()=>{try{const s=await get(ref(db,ROOT));state=ensureState(s.val());render();status("Dados actualizados",true)}catch(e){status("Sem ligação: "+e.message,false)}};
+$("search").oninput=()=>render();
+$("customCharge").onclick=async()=>{try{await charge($("customName").value.trim()||"Consumo avulso",Number($("customAmount").value));$("customName").value="";$("customAmount").value=""}catch(e){showMessage(e.message,false)}};
+$("topUp").onclick=async()=>{const id=$("topCard").value,amount=Number($("topAmount").value);try{if(!Number.isFinite(amount)||amount<=0)throw Error("Indique um valor válido.");await mutate(s=>{const c=s.cards.find(x=>x.id===id);if(!c)throw Error("Cartão não encontrado.");c.balance=Number(c.balance)+amount;c.initial=Number(c.initial)+amount;addTx(s,c,"Carregamento de saldo",amount)});$("topAmount").value="";showMessage("Carregamento registado.",true)}catch(e){showMessage(e.message,false)}};
+document.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{["pos","cards","history"].forEach(t=>$("tab-"+t).classList.toggle("hidden",t!==b.dataset.tab));document.querySelectorAll("[data-tab]").forEach(x=>x.className=x===b?"btn":"btn2")});
+function download(name,blob){const a=document.createElement("a"),url=URL.createObjectURL(blob);a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
+$("backup").onclick=()=>{if(!state)return;download("Backup_Taberna_Songo_"+new Date().toISOString().slice(0,10)+".json",new Blob([JSON.stringify({exportedAt:new Date().toISOString(),state},null,2)],{type:"application/json"}))};
+$("csv").onclick=()=>{if(!state)return;const rows=[["Data/hora","Cartão","Finalista","Descrição","Valor MT","Funcionário"],...state.transactions.map(t=>[t.time||t.timestamp,t.cardId,t.finalist,t.description,t.amount,t.employee])];const csv=rows.map(r=>r.map(v=>'"'+String(v??"").replace(/"/g,'""')+'"').join(";")).join("\n");download("Historico_Taberna_Songo.csv",new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8"}))};
+$("pdf").onclick=()=>{if(!state)return;if(!window.jspdf){alert("Não foi possível carregar o módulo PDF. Verifique a Internet.");return}const {jsPDF}=window.jspdf,doc=new jsPDF({orientation:"landscape"});doc.setFontSize(14);doc.text("Taberna de Songo — Histórico do Baile dos Finalistas",14,15);doc.setFontSize(8);let y=24;doc.text("Data/hora | Cartão | Finalista | Descrição | Valor (MT) | Funcionário",14,y);y+=7;for(const t of state.transactions){const line=`${t.time||t.timestamp} | ${t.cardId} | ${t.finalist} | ${t.description} | ${t.amount} | ${t.employee}`;const lines=doc.splitTextToSize(line,265);if(y+lines.length*4>190){doc.addPage();y=15}doc.text(lines,14,y);y+=lines.length*4+2}doc.save("Historico_Taberna_Songo.pdf")};
+$("scan").onclick=async()=>{if(qr){try{await qr.stop();}catch{}qr=null;$("qr-reader").classList.add("hidden");$("scan").textContent="Abrir leitor QR";return}
+ $("qr-reader").classList.remove("hidden");$("scan").textContent="Fechar leitor QR";qr=new Html5Qrcode("qr-reader");try{await qr.start({facingMode:"environment"},{fps:10,qrbox:{width:230,height:230}},async text=>{const c=state.cards.find(x=>x.id===text||x.num===text);if(c){selectCard(c.id);showMessage("Cartão identificado: "+c.finalist);await qr.stop();qr=null;$("qr-reader").classList.add("hidden");$("scan").textContent="Abrir leitor QR"}else showMessage("Código QR não reconhecido.",false)},()=>{})}catch(e){showMessage("Não foi possível abrir a câmara: "+e.message,false);qr=null}};
+</script>
+</body></html>
